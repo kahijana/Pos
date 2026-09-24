@@ -64,6 +64,13 @@ export default function InventoryManager({
   const [showGsheetHelp, setShowGsheetHelp] = useState(false);
   const [isCopiedHeader, setIsCopiedHeader] = useState(false);
 
+  // Keep inputUrl in sync if prop updates
+  useState(() => {
+    if (gsheetUrl && !inputUrl) {
+      setInputUrl(gsheetUrl);
+    }
+  });
+
   // Form states for adding/editing product (NO HPP/MODAL!)
   const [formData, setFormData] = useState({
     kodeBarang: '',

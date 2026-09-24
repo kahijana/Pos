@@ -38,6 +38,9 @@ const STORAGE_KEYS = {
   LAST_SYNC_TIME: 'kasir_2satuan_last_sync_time',
 };
 
+export const DEFAULT_GSHEET_URL =
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vSYXPCzjV8rs1-jzmcCc1STZ0aU5ziO88kBdW4mGo8jKE5YotBFg4oeo-pBd3qagezMYYdQmY8wxuiB/pubhtml';
+
 export default function App() {
   const [products, setProducts] = useState<Product[]>(() => {
     try {
@@ -50,7 +53,7 @@ export default function App() {
   });
 
   const [gsheetUrl, setGsheetUrl] = useState<string>(() => {
-    return localStorage.getItem(STORAGE_KEYS.GSHEET_URL) || '';
+    return localStorage.getItem(STORAGE_KEYS.GSHEET_URL) || DEFAULT_GSHEET_URL;
   });
 
   const [autoSync, setAutoSync] = useState<boolean>(() => {
