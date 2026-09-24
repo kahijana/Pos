@@ -1,0 +1,8 @@
+{
+  "name": "KasirDuaSatuan - POS Mobile & Barcode Scanner",
+  "description": "Aplikasi POS kasir mobile responsif dengan dukungan kalkulasi 2 satuan, pemindai barcode kamera, serta import dan export CSV dan Excel.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
