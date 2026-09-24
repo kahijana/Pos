@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Product, CartItem, PriceTier, Transaction } from './types/pos';
-import { getDefaultProducts } from './utils/excelCsv';
+import { getDefaultProducts, fetchProductsFromGoogleSheets } from './utils/excelCsv';
 import { formatRupiah, calculateSubtotal, getEffectivePrice2 } from './utils/formatters';
 import { playScanSuccessSound } from './utils/audio';
 import ProductCard from './components/ProductCard';
@@ -24,6 +24,8 @@ import {
   CheckCircle2,
   ChevronRight,
   Sparkles,
+  Cloud,
+  RefreshCw,
 } from 'lucide-react';
 
 const STORAGE_KEYS = {
@@ -31,6 +33,9 @@ const STORAGE_KEYS = {
   TRANSACTIONS: 'kasir_2satuan_txs',
   CART: 'kasir_2satuan_cart',
   PRICE_TIER: 'kasir_2satuan_tier',
+  GSHEET_URL: 'kasir_2satuan_gsheet_url',
+  GSHEET_AUTO_SYNC: 'kasir_2satuan_gsheet_auto_sync',
+  LAST_SYNC_TIME: 'kasir_2satuan_last_sync_time',
 };
 
 export default function App() {
@@ -43,6 +48,21 @@ export default function App() {
     }
     return getDefaultProducts();
   });
+
+  const [gsheetUrl, setGsheetUrl] = useState<string>(() => {
+    return localStorage.getItem(STORAGE_KEYS.GSHEET_URL) || '';
+  });
+
+  const [autoSync, setAutoSync] = useState<boolean>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.GSHEET_AUTO_SYNC);
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => {
+    return localStorage.getItem(STORAGE_KEYS.LAST_SYNC_TIME) || null;
+  });
+
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const [cart, setCart] = useState<CartItem[]>(() => {
     try {
@@ -126,6 +146,69 @@ export default function App() {
       // ignore
     }
   }, [priceTier]);
+
+  const handleSaveGsheetUrl = (url: string) => {
+    setGsheetUrl(url);
+    try {
+      localStorage.setItem(STORAGE_KEYS.GSHEET_URL, url);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleToggleAutoSync = (enabled: boolean) => {
+    setAutoSync(enabled);
+    try {
+      localStorage.setItem(STORAGE_KEYS.GSHEET_AUTO_SYNC, String(enabled));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSyncGoogleSheets = useCallback(
+    async (customUrl?: string): Promise<{ success: boolean; count?: number; message?: string }> => {
+      const urlToUse = (customUrl !== undefined ? customUrl : gsheetUrl).trim();
+      if (!urlToUse) {
+        return { success: false, message: 'URL Google Sheets belum diisi.' };
+      }
+
+      setIsSyncing(true);
+      try {
+        const fetchedProducts = await fetchProductsFromGoogleSheets(urlToUse);
+        if (fetchedProducts.length === 0) {
+          throw new Error('Tidak ada data produk yang ditemukan di Google Sheet.');
+        }
+
+        setProducts(fetchedProducts);
+        const nowStr = new Date().toLocaleString('id-ID', {
+          dateStyle: 'short',
+          timeStyle: 'short',
+        });
+        setLastSyncTime(nowStr);
+        try {
+          localStorage.setItem(STORAGE_KEYS.LAST_SYNC_TIME, nowStr);
+        } catch {
+          // ignore
+        }
+        showToast(`✅ Sinkron sukses: ${fetchedProducts.length} barang diperbarui dari Google Sheets`);
+        return { success: true, count: fetchedProducts.length };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        showToast(`❌ Gagal sinkron: ${msg}`);
+        return { success: false, message: msg };
+      } finally {
+        setIsSyncing(false);
+      }
+    },
+    [gsheetUrl]
+  );
+
+  // Auto-sync on startup if configured and online
+  useEffect(() => {
+    if (gsheetUrl && autoSync && navigator.onLine) {
+      handleSyncGoogleSheets(gsheetUrl);
+    }
+  }, []);
 
   // Recalculate cart prices when price tier changes
   const handlePriceTierChange = (newTier: PriceTier) => {
@@ -431,8 +514,30 @@ export default function App() {
           })}
         </nav>
 
-        {/* Actions Zone: PWA Install & Camera Scanner Button */}
-        <div className="flex items-center gap-2">
+        {/* Actions Zone: PWA Install, Cloud Sync & Camera Scanner Button */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Cloud Sync Quick Button */}
+          {gsheetUrl ? (
+            <button
+              onClick={() => handleSyncGoogleSheets()}
+              disabled={isSyncing}
+              className="min-h-[40px] px-2.5 sm:px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+              title={`Sinkron Google Sheets (Terakhir: ${lastSyncTime || 'Belum'})`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span className="hidden md:inline">{isSyncing ? 'Sinkron...' : 'Sync GSheets'}</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setActiveTab('inventaris')}
+              className="min-h-[40px] px-2.5 sm:px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all hidden sm:flex"
+              title="Hubungkan Google Sheets"
+            >
+              <Cloud className="w-3.5 h-3.5 text-slate-500" />
+              <span className="hidden md:inline">Hubungkan GSheets</span>
+            </button>
+          )}
+
           {/* PWA Install Button */}
           <PWAInstallButton />
 
@@ -599,13 +704,20 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 4: INVENTARIS (IMPORT / EXPORT) */}
+        {/* TAB 4: INVENTARIS (GOOGLE SHEETS / EXCEL / CSV) */}
         {activeTab === 'inventaris' && (
           <div className="max-w-4xl mx-auto">
             <InventoryManager
               products={products}
               onUpdateProducts={setProducts}
               onResetDefault={() => setProducts(getDefaultProducts())}
+              gsheetUrl={gsheetUrl}
+              onSaveGsheetUrl={handleSaveGsheetUrl}
+              onSyncGsheet={handleSyncGoogleSheets}
+              isSyncing={isSyncing}
+              lastSyncTime={lastSyncTime}
+              autoSync={autoSync}
+              onToggleAutoSync={handleToggleAutoSync}
             />
           </div>
         )}

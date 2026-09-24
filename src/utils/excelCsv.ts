@@ -114,6 +114,70 @@ export function getDefaultProducts(): Product[] {
   return parseProductsFromCsvText(DEFAULT_CSV_DATA);
 }
 
+export function getGoogleSheetsCsvUrl(inputUrl: string): string {
+  const trimmed = inputUrl.trim();
+  if (!trimmed) return '';
+
+  // If already a direct CSV export / pub URL
+  if (trimmed.includes('output=csv') || trimmed.includes('tqx=out:csv')) {
+    return trimmed;
+  }
+
+  // Handle Publish to web URL: https://docs.google.com/spreadsheets/d/e/2PACX-.../pubhtml or /pub
+  if (trimmed.includes('/spreadsheets/d/e/')) {
+    const base = trimmed.split('?')[0].replace(/\/pubhtml$/, '/pub').replace(/\/pub$/, '/pub');
+    const gidMatch = trimmed.match(/[?&#]gid=([0-9]+)/);
+    const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
+    return `${base}?output=csv${gidParam}`;
+  }
+
+  // Handle Standard Google Sheets URL: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/...
+  const idMatch = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (idMatch && idMatch[1]) {
+    const sheetId = idMatch[1];
+    const gidMatch = trimmed.match(/[?&#]gid=([0-9]+)/);
+    const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
+    return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv${gidParam}`;
+  }
+
+  return trimmed;
+}
+
+export async function fetchProductsFromGoogleSheets(sheetUrl: string): Promise<Product[]> {
+  const csvUrl = getGoogleSheetsCsvUrl(sheetUrl);
+  if (!csvUrl) {
+    throw new Error('URL Google Sheets tidak valid.');
+  }
+
+  const response = await fetch(csvUrl, {
+    method: 'GET',
+    headers: {
+      'Accept': 'text/csv, text/plain, */*',
+    },
+    cache: 'no-cache',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gagal mengambil data dari Google Sheets (Status: ${response.status}). Pastikan Google Sheet diatur ke "Siapa saja yang memiliki link dapat melihat" atau Publikasikan ke Web.`);
+  }
+
+  const csvText = await response.text();
+  if (!csvText || csvText.trim().length === 0) {
+    throw new Error('Data Google Sheets kosong.');
+  }
+
+  if (csvText.includes('<!DOCTYPE html>') || csvText.includes('<html')) {
+    throw new Error('Google Sheet memerlukan izin akses. Ubah akses menjadi "Siapa saja yang memiliki link" (Anyone with the link) atau Publikasikan ke Web (Publish to Web -> CSV).');
+  }
+
+  const products = parseProductsFromCsvText(csvText);
+  if (products.length === 0) {
+    throw new Error('Tidak ditemukan format kolom data barang yang valid di Google Sheet tersebut.');
+  }
+
+  return products;
+}
+
 export async function parseProductsFromFile(file: File): Promise<Product[]> {
   const extension = file.name.split('.').pop()?.toLowerCase();
 

@@ -19,18 +19,39 @@ import {
   X,
   Edit2,
   Trash2,
+  Cloud,
+  RefreshCw,
+  Link2,
+  ExternalLink,
+  HelpCircle,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 interface InventoryManagerProps {
   products: Product[];
   onUpdateProducts: (products: Product[]) => void;
   onResetDefault: () => void;
+  gsheetUrl: string;
+  onSaveGsheetUrl: (url: string) => void;
+  onSyncGsheet: (customUrl?: string) => Promise<{ success: boolean; count?: number; message?: string }>;
+  isSyncing: boolean;
+  lastSyncTime: string | null;
+  autoSync: boolean;
+  onToggleAutoSync: (enabled: boolean) => void;
 }
 
 export default function InventoryManager({
   products,
   onUpdateProducts,
   onResetDefault,
+  gsheetUrl,
+  onSaveGsheetUrl,
+  onSyncGsheet,
+  isSyncing,
+  lastSyncTime,
+  autoSync,
+  onToggleAutoSync,
 }: InventoryManagerProps) {
   const [search, setSearch] = useState('');
   const [importStatus, setImportStatus] = useState<{
@@ -39,6 +60,9 @@ export default function InventoryManager({
   } | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [inputUrl, setInputUrl] = useState(gsheetUrl);
+  const [showGsheetHelp, setShowGsheetHelp] = useState(false);
+  const [isCopiedHeader, setIsCopiedHeader] = useState(false);
 
   // Form states for adding/editing product (NO HPP/MODAL!)
   const [formData, setFormData] = useState({
@@ -182,13 +206,179 @@ export default function InventoryManager({
       p.kodeBarcode.toLowerCase().includes(search.toLowerCase())
   );
 
+  const handleSaveAndSync = async () => {
+    onSaveGsheetUrl(inputUrl);
+    if (!inputUrl.trim()) {
+      setImportStatus({
+        type: 'error',
+        message: 'Masukkan URL Google Sheets terlebih dahulu.',
+      });
+      return;
+    }
+    const res = await onSyncGsheet(inputUrl);
+    if (res.success) {
+      setImportStatus({
+        type: 'success',
+        message: `Berhasil sinkron ${res.count} barang dari Google Sheets!`,
+      });
+    } else {
+      setImportStatus({
+        type: 'error',
+        message: res.message || 'Gagal sinkronisasi dari Google Sheets.',
+      });
+    }
+  };
+
+  const copyHeaderTemplate = () => {
+    const headers = 'KODE_BARANG,KODE_BARCODE,NAMA,KATEGORI,SUPPLIER,TANGGAL_BELI,ISI,SATUAN_1,SATUAN_2,TOKO,GUDANG,HPP,HARGA_RETAIL_1,HARGA_RETAIL_2,HARGA_GROSIR_1,HARGA_GROSIR_2,HARGA_CABANG_1,HARGA_CABANG_2';
+    navigator.clipboard.writeText(headers);
+    setIsCopiedHeader(true);
+    setTimeout(() => setIsCopiedHeader(false), 2000);
+  };
+
   return (
     <div className="space-y-4 pb-24">
+      {/* GOOGLE SHEETS CLOUD SYNC CARD (NEW) */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-emerald-900 to-slate-900 text-white shadow-md space-y-3.5 border border-emerald-700/40">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+              <Cloud className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-base font-bold text-white tracking-tight">
+                  Sinkronisasi Google Sheets
+                </h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500 text-slate-950 uppercase tracking-wider">
+                  Cloud Live
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-200/80 mt-0.5">
+                Edit barang & harga di Google Sheets, semua kasir langsung terupdate otomatis!
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowGsheetHelp(!showGsheetHelp)}
+            className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs flex items-center gap-1 transition-colors shrink-0"
+            title="Petunjuk Setup Google Sheets"
+          >
+            <HelpCircle className="w-4 h-4 text-emerald-300" />
+            <span className="text-[11px] hidden sm:inline">Panduan</span>
+          </button>
+        </div>
+
+        {/* Google Sheets URL Input & Buttons */}
+        <div className="space-y-2">
+          <label className="text-[11px] font-medium text-emerald-200/90 flex items-center justify-between">
+            <span className="flex items-center gap-1">
+              <Link2 className="w-3.5 h-3.5" />
+              Link / URL Google Sheets:
+            </span>
+            {lastSyncTime && (
+              <span className="text-[10px] text-emerald-300 font-normal">
+                Terakhir sinkron: {lastSyncTime}
+              </span>
+            )}
+          </label>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <input
+                type="url"
+                value={inputUrl}
+                onChange={(e) => setInputUrl(e.target.value)}
+                placeholder="https://docs.google.com/spreadsheets/d/..."
+                className="w-full h-11 px-3.5 rounded-xl bg-slate-950/60 border border-emerald-500/30 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent font-mono"
+              />
+              {inputUrl && (
+                <button
+                  type="button"
+                  onClick={() => setInputUrl('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSaveAndSync}
+                disabled={isSyncing}
+                className="min-h-[44px] flex-1 sm:flex-none px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'Menyinkronkan...' : 'Sinkronkan Sekarang'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Options & Quick Helpers */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-emerald-800/60 text-xs">
+          <label className="flex items-center gap-2 cursor-pointer select-none text-emerald-100">
+            <input
+              type="checkbox"
+              checked={autoSync}
+              onChange={(e) => onToggleAutoSync(e.target.checked)}
+              className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-400 bg-slate-950 border-emerald-700"
+            />
+            <span className="text-[11px]">Otomatis sinkron saat aplikasi dibuka</span>
+          </label>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={copyHeaderTemplate}
+              className="px-2.5 py-1 rounded-lg bg-emerald-950/60 hover:bg-emerald-950 text-emerald-300 text-[11px] font-medium flex items-center gap-1 border border-emerald-800/80 transition-colors"
+            >
+              {isCopiedHeader ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              <span>{isCopiedHeader ? 'Header Disalin!' : 'Salin Header Kolom'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Collapsible Step-by-Step Guide */}
+        {showGsheetHelp && (
+          <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-emerald-500/20 text-xs text-slate-200 space-y-2 animate-in fade-in-50 duration-200">
+            <div className="flex items-center justify-between font-bold text-emerald-300 text-[11px]">
+              <span>CARA MENGHUBUNGKAN GOOGLE SHEETS:</span>
+              <button onClick={() => setShowGsheetHelp(false)} className="text-slate-400 hover:text-white">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-slate-300 leading-relaxed">
+              <li>
+                Buka Google Sheets data master barang Anda (Bisa buat baru atau paste dari Excel yang ada).
+              </li>
+              <li>
+                Pastikan nama kolom baris ke-1 sama (klik tombol <b>Salin Header Kolom</b> di atas).
+              </li>
+              <li>
+                Klik tombol <b>Bagikan (Share)</b> di pojok kanan atas Google Sheet.
+              </li>
+              <li>
+                Ubah Akses Umum menjadi: <b>"Siapa saja yang memiliki link" (Anyone with the link)</b> sebagai <i>Pelihat (Viewer)</i>.
+              </li>
+              <li>
+                <b>Salin Link</b> Google Sheet tersebut, lalu tempelkan di kotak URL di atas dan klik <b>Sinkronkan Sekarang</b>.
+              </li>
+            </ol>
+            <div className="text-[10px] text-emerald-400 bg-emerald-950/50 p-2 rounded-xl border border-emerald-800/40">
+              💡 <b>Tips:</b> Setelah terhubung, setiap kali Anda menambah barang atau mengganti harga di Google Sheets, semua kasir akan otomatis menerima data terbaru saat membuka atau me-refresh aplikasi!
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Top Header & Actions Card */}
       <div className="p-4 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Kelola Inventaris & Data</h2>
+            <h2 className="text-base font-bold text-slate-900">Kelola Inventaris Lokal</h2>
             <p className="text-xs text-slate-500">
               Total {products.length} barang terdaftar (Harga Jual 2 Satuan)
             </p>
@@ -219,7 +409,7 @@ export default function InventoryManager({
               className="min-h-[44px] w-full px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
             >
               <Upload className="w-4 h-4 text-emerald-700" />
-              <span>Import Excel/CSV</span>
+              <span>Import Excel Manual</span>
             </label>
           </div>
 
